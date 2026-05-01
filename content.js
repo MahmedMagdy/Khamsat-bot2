@@ -18,14 +18,15 @@ const MASTER_PAGE_URL = "https://khamsat.com/community/requests";
 
 // Selectors (update as needed)
 const SELECTOR_REQUEST_LINKS =
-  "table.listing_table .details-head a.ajaxbtn, #forum_requests a.ajaxbtn";
+  "a[href^='/community/requests/']:not([href='/community/requests/']), a[href^='https://khamsat.com/community/requests/']:not([href='https://khamsat.com/community/requests/']), a[href^='http://khamsat.com/community/requests/']:not([href='http://khamsat.com/community/requests/'])";
 const SELECTOR_REQUEST_TEXT =
   ".forum_post .card-body, .forum_post article, .text-content";
 const SELECTOR_ADD_REPLY =
-  "a[href='#add_comment'].c-button--primary, button[data-action='add-reply']";
+  "a[href='#add_comment'], a[href*='add_comment'], button[data-action='add-reply'], button[data-action='add_comment'], button[data-action='add-comment'], [data-action='add-reply'], [data-action='add_comment'], [data-action='add-comment']";
 const SELECTOR_TEXTAREA = "#commentable_form textarea, textarea[name='comment']";
 const SELECTOR_CHECKBOX = "input#confirm[type='checkbox']";
-const SELECTOR_SUBMIT = "button#commentable_submit[type='submit']";
+const SELECTOR_SUBMIT =
+  "button#commentable_submit[type='submit'], input#commentable_submit[type='submit'], #commentable_form button[type='submit'], #commentable_form input[type='submit'], form[action*='comment'] button[type='submit'], form[action*='comment'] input[type='submit'], button[type='submit'][name='commit'], input[type='submit'][name='commit']";
 const SELECTOR_SUCCESS = ".alert-success, .success-message, .notice-success";
 const SELECTOR_WARNING = ".alert.alert-danger, .warning, .error";
 // Arabic fallback labels when CSS selectors fail for critical actions.
@@ -33,9 +34,35 @@ const FALLBACK_ADD_REPLY_TEXTS = [
   "أضف تعليق",
   "اضف تعليق",
   "إضافة تعليق",
+  "اضافة تعليق",
+  "أضف تعليقك",
+  "اضف تعليقك",
+  "إضافة تعليقك",
+  "اضافة تعليقك",
   "أضف رد",
   "اضف رد",
-  "إضافة رد"
+  "إضافة رد",
+  "اضافة رد",
+  "أضف ردك",
+  "اضف ردك",
+  "إضافة ردك",
+  "اضافة ردك",
+  "أكتب تعليق",
+  "اكتب تعليق",
+  "أكتب رد",
+  "اكتب رد",
+  "أضف مشاركة",
+  "اضف مشاركة",
+  "إضافة مشاركة",
+  "اضافة مشاركة",
+  "رد على الطلب",
+  "رد على الموضوع",
+  "تعليق جديد",
+  "رد جديد",
+  "إضافة تعليق جديد",
+  "اضافة تعليق جديد",
+  "إضافة رد جديد",
+  "اضافة رد جديد"
 ];
 const FALLBACK_SUBMIT_TEXTS = [
   "أرسل",
@@ -43,7 +70,26 @@ const FALLBACK_SUBMIT_TEXTS = [
   "إرسال",
   "إرسال الرد",
   "ارسل",
-  "ارسال الرد"
+  "ارسال الرد",
+  "إرسال تعليق",
+  "ارسال تعليق",
+  "إرسال التعليق",
+  "ارسال التعليق",
+  "نشر",
+  "نشر الرد",
+  "نشر تعليق",
+  "نشر التعليق",
+  "تأكيد الإرسال",
+  "تأكيد الرد",
+  "حفظ",
+  "حفظ الرد",
+  "حفظ تعليق",
+  "حفظ التعليق",
+  "إضافة رد",
+  "اضافة رد",
+  "إضافة تعليق",
+  "اضافة تعليق",
+  "إتمام الإرسال"
 ];
 const FALLBACK_TEMPLATES = [
   "السلام عليكم، لقد اطلعت على تفاصيل طلبك بعناية، وأنا على أتم الاستعداد لتنفيذ المطلوب باحترافية عالية. يسعدني تواصلك لمناقشة التفاصيل.",
