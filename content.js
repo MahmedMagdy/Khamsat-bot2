@@ -106,6 +106,8 @@ const MICRO_SCROLL_INTERVAL_MAX_MS = 900;
 const SCROLL_VIEWPORT_FALLBACK_HEIGHT = 600;
 const SCROLL_WHEEL_MIN_DELTA = 120;
 const SCROLL_STABILITY_DELAY_MS = 120;
+const SCROLL_STABILITY_COUNT_THRESHOLD = 2;
+const SCROLL_POSITION_TOLERANCE_PX = 2;
 const API_BACKOFF_MIN_MS = 2 * 60 * 1000;
 const API_BACKOFF_MAX_MS = 4 * 60 * 1000;
 const DRAFT_PROBE_MIN_LENGTH = 40;
@@ -1079,7 +1081,7 @@ function getScrollTop() {
   );
 }
 
-async function aggressiveScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
+async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
   const startVisible = getVisibleElapsedMs();
   let lastScrollHeight = 0;
   let stableCount = 0;
@@ -1109,13 +1111,14 @@ async function aggressiveScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
 
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const currentTop = getScrollTop();
-    const atBottom = Math.abs(currentTop - targetTop) <= 2;
+    const atBottom =
+      Math.abs(currentTop - targetTop) <= SCROLL_POSITION_TOLERANCE_PX;
     if (scrollHeight === lastScrollHeight && atBottom) {
       stableCount += 1;
     } else {
       stableCount = 0;
     }
-    if (stableCount >= 2) return;
+    if (stableCount >= SCROLL_STABILITY_COUNT_THRESHOLD) return;
     lastScrollHeight = scrollHeight;
     await sleep(SCROLL_STABILITY_DELAY_MS);
   }
@@ -1340,7 +1343,7 @@ async function handleDetailPage() {
 
     await waitForVisibility();
     if (!masterToggleEnabled) return;
-    await aggressiveScrollToPageBottom(MAX_WAIT_MS);
+    await ensureScrollToPageBottom(MAX_WAIT_MS);
 
     let textarea;
     try {
