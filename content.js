@@ -1080,18 +1080,22 @@ async function aggressiveScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
   const startVisible = getVisibleElapsedMs();
   let lastScrollHeight = 0;
   let stableCount = 0;
-  while (getVisibleElapsedMs() - startVisible <= timeoutMs) {
+  while (getVisibleElapsedMs() - startVisible < timeoutMs) {
     await waitForVisibility();
     const scrollHeight = getDocumentScrollHeight();
     const viewportHeight =
       document.documentElement?.clientHeight || window.innerHeight || 0;
     const targetTop = Math.max(scrollHeight - viewportHeight, 0);
+    const wheelDelta = Math.max(
+      120,
+      Math.min(scrollHeight, (viewportHeight || 600) * 2)
+    );
 
-    window.scrollTo(0, scrollHeight);
+    window.scrollTo(0, targetTop);
     window.dispatchEvent(
       new WheelEvent("wheel", {
         deltaX: 0,
-        deltaY: scrollHeight,
+        deltaY: wheelDelta,
         bubbles: true,
         cancelable: true
       })
@@ -1109,7 +1113,9 @@ async function aggressiveScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
     lastScrollHeight = scrollHeight;
     await sleep(120);
   }
-  throw new Error(`Timeout scrolling to page bottom after ${timeoutMs}ms.`);
+  throw new Error(
+    `Timeout: Unable to reach a stable page bottom after ${timeoutMs}ms.`
+  );
 }
 
 async function simulateHumanClick(element) {
