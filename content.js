@@ -17,18 +17,50 @@ const WEBHOOK_PLACEHOLDERS_LOWER = WEBHOOK_PLACEHOLDERS.map((value) =>
 const MASTER_PAGE_URL = "https://khamsat.com/community/requests";
 
 // Selectors (update as needed)
-const SELECTOR_REQUEST_LINKS =
-  "a[href^='/community/requests/']:not([href='/community/requests/']), a[href^='https://khamsat.com/community/requests/']:not([href='https://khamsat.com/community/requests/']), a[href^='http://khamsat.com/community/requests/']:not([href='http://khamsat.com/community/requests/'])";
+const SELECTOR_REQUEST_LINKS = "table.listing_table td.details-head a.ajaxbtn";
 const SELECTOR_REQUEST_TEXT =
   ".forum_post .card-body, .forum_post article, .text-content";
 const SELECTOR_ADD_REPLY =
-  "a[href='#add_comment'], a[href*='add_comment'], button[data-action='add-reply'], button[data-action='add_comment'], button[data-action='add-comment'], [data-action='add-reply'], [data-action='add_comment'], [data-action='add-comment']";
+  "a[href='#add_comment'], a[href*='add_comment'], button[type='button'][data-action='add-reply'], button[type='button'][data-action='add_comment'], button[type='button'][data-action='add-comment'], [role='button'][data-action='add-reply'], [role='button'][data-action='add_comment'], [role='button'][data-action='add-comment']";
 const SELECTOR_TEXTAREA = "#commentable_form textarea, textarea[name='comment']";
 const SELECTOR_CHECKBOX = "input#confirm[type='checkbox']";
 const SELECTOR_SUBMIT =
   "button#commentable_submit[type='submit'], input#commentable_submit[type='submit'], #commentable_form button[type='submit'], #commentable_form input[type='submit'], form[action*='comment'] button[type='submit'], form[action*='comment'] input[type='submit'], button[type='submit'][name='commit'], input[type='submit'][name='commit']";
 const SELECTOR_SUCCESS = ".alert-success, .success-message, .notice-success";
 const SELECTOR_WARNING = ".alert.alert-danger, .warning, .error";
+const ACTION_CANDIDATE_SELECTOR =
+  "button, a, input[type='submit'], input[type='button'], [role='button'], [role='link']";
+const SPATIAL_ADD_REPLY_CONTAINERS = [
+  "#commentable_form",
+  ".forum_post",
+  ".forum-post",
+  "main"
+];
+const SPATIAL_SUBMIT_CONTAINERS = [
+  "#commentable_form",
+  "form[action*='comment']",
+  ".forum_post",
+  ".forum-post",
+  "main"
+];
+const CLOSED_REQUEST_TEXTS = [
+  "الطلب مغلق",
+  "هذا الطلب مغلق",
+  "الموضوع مغلق",
+  "هذا الموضوع مغلق",
+  "تم إغلاق الطلب",
+  "تم اغلاق الطلب",
+  "تم إغلاق الموضوع",
+  "تم اغلاق الموضوع",
+  "المناقشة مغلقة",
+  "الردود مغلقة",
+  "لا يمكن إضافة رد",
+  "لا يمكنك إضافة رد",
+  "لا يمكن إضافة تعليق",
+  "لا يمكنك إضافة تعليق",
+  "closed",
+  "locked"
+];
 // Arabic fallback labels when CSS selectors fail for critical actions.
 const FALLBACK_ADD_REPLY_TEXTS = [
   "أضف تعليق",
@@ -871,15 +903,9 @@ function findActionElementByTextNow(fallbackTexts) {
     .map((text) => normalizeTextForMatch(text))
     .filter(Boolean);
   if (!normalizedFallbacks.length) return null;
-  const selector = [
-    "button",
-    "a",
-    "input[type='submit']",
-    "input[type='button']",
-    "[role='button']",
-    "[role='link']"
-  ].join(",");
-  const nodes = Array.from(document.querySelectorAll(selector));
+  const nodes = Array.from(
+    document.querySelectorAll(ACTION_CANDIDATE_SELECTOR)
+  );
   for (const node of nodes) {
     if (!isElementVisibleNow(node)) continue;
     if (node.disabled) continue;
@@ -892,10 +918,29 @@ function findActionElementByTextNow(fallbackTexts) {
   return null;
 }
 
+function findActionElementBySpatialScopeNow(containerSelectors) {
+  if (!containerSelectors?.length) return null;
+  const containers = Array.from(
+    document.querySelectorAll(containerSelectors.join(","))
+  );
+  for (const container of containers) {
+    const candidates = Array.from(
+      container.querySelectorAll(ACTION_CANDIDATE_SELECTOR)
+    );
+    for (const candidate of candidates) {
+      if (!isElementVisibleNow(candidate)) continue;
+      if (candidate.disabled) continue;
+      return candidate;
+    }
+  }
+  return null;
+}
+
 async function waitForElementWithFallback(
   selector,
   fallbackTexts,
-  timeoutMs = MAX_WAIT_MS
+  timeoutMs = MAX_WAIT_MS,
+  spatialSelectors = null
 ) {
   const startVisible = getVisibleElapsedMs();
   return new Promise((resolve, reject) => {
@@ -909,6 +954,8 @@ async function waitForElementWithFallback(
       if (el) return resolve(el);
       const fallback = findActionElementByTextNow(fallbackTexts);
       if (fallback) return resolve(fallback);
+      const spatial = findActionElementBySpatialScopeNow(spatialSelectors);
+      if (spatial) return resolve(spatial);
       if (getVisibleElapsedMs() - startVisible > timeoutMs) {
         return reject(new Error(getTimeoutErrorMessage(selector)));
       }
@@ -1243,6 +1290,19 @@ function isAddReplyTimeoutError(err) {
   return message.includes(getTimeoutErrorMessage(SELECTOR_ADD_REPLY));
 }
 
+function isRequestClosedNow() {
+  const pageText = normalizeTextForMatch(getPageTextExcludingTextareas());
+  if (!pageText) return false;
+  const hasClosedText = CLOSED_REQUEST_TEXTS.some((signal) =>
+    pageText.includes(normalizeTextForMatch(signal))
+  );
+  if (!hasClosedText) return false;
+  const form = document.querySelector(
+    "#commentable_form, form[action*='comment'], textarea[name='comment'], textarea"
+  );
+  return !form;
+}
+
 async function handleClosedRequest(requestId) {
   if (requestId) {
     await addToStorageList(STORAGE_PROCESSED, requestId);
@@ -1335,12 +1395,15 @@ async function handleDetailPage() {
       addReplyButton = await waitForElementWithFallback(
         SELECTOR_ADD_REPLY,
         FALLBACK_ADD_REPLY_TEXTS,
-        MAX_WAIT_MS
+        MAX_WAIT_MS,
+        SPATIAL_ADD_REPLY_CONTAINERS
       );
     } catch (err) {
       if (isAddReplyTimeoutError(err)) {
-        await handleClosedRequest(requestId);
-        return;
+        if (isRequestClosedNow()) {
+          await handleClosedRequest(requestId);
+          return;
+        }
       }
       throw err;
     }
@@ -1367,7 +1430,8 @@ async function handleDetailPage() {
     const submitBtn = await waitForElementWithFallback(
       SELECTOR_SUBMIT,
       FALLBACK_SUBMIT_TEXTS,
-      MAX_WAIT_MS
+      MAX_WAIT_MS,
+      SPATIAL_SUBMIT_CONTAINERS
     );
     await waitForVisibility();
     if (!masterToggleEnabled) return;
