@@ -80,6 +80,7 @@ const STORAGE_FALLBACK_LAST_INDEX = "fallbackTemplateLastIndex";
 
 // Timing
 const MAX_WAIT_MS = 10000;
+const TEXTAREA_EXTENDED_WAIT_MS = 45000;
 const POLLING_INTERVAL_MIN_MS = 60000;
 const POLLING_INTERVAL_MAX_MS = 120000;
 const TYPO_CHANCE_PER_CHAR = 0.01;
@@ -185,6 +186,17 @@ function waitForVisibility() {
 function waitForHidden() {
   if (!isPageVisible) return Promise.resolve();
   return new Promise((resolve) => hiddenWaiters.add(resolve));
+}
+
+function waitForOnline() {
+  if (navigator.onLine) return Promise.resolve();
+  return new Promise((resolve) => {
+    const handleOnline = () => {
+      window.removeEventListener("online", handleOnline);
+      resolve();
+    };
+    window.addEventListener("online", handleOnline);
+  });
 }
 
 function getVisibleElapsedMs() {
@@ -797,6 +809,54 @@ function isElementVisibleNow(element) {
   return true;
 }
 
+function isElementInteractable(element) {
+  if (!isElementVisibleNow(element)) return false;
+  if (element.disabled) return false;
+  if ("readOnly" in element && element.readOnly) return false;
+  return true;
+}
+
+async function waitForInteractableElement(selector, timeoutMs = MAX_WAIT_MS) {
+  const startVisible = getVisibleElapsedMs();
+  return new Promise((resolve, reject) => {
+    const check = async () => {
+      if (!isPageVisible) {
+        await waitForVisibility();
+        requestAnimationFrame(check);
+        return;
+      }
+      const el = document.querySelector(selector);
+      if (isElementInteractable(el)) return resolve(el);
+      if (getVisibleElapsedMs() - startVisible > timeoutMs) {
+        return reject(new Error(getTimeoutErrorMessage(selector)));
+      }
+      requestAnimationFrame(check);
+    };
+    check();
+  });
+}
+
+async function waitForTextareaWithNetworkResilience(
+  selector,
+  timeoutMs = TEXTAREA_EXTENDED_WAIT_MS
+) {
+  while (true) {
+    try {
+      return await waitForInteractableElement(selector, timeoutMs);
+    } catch (err) {
+      const message = `${err?.message || err || ""}`;
+      if (
+        message.includes(getTimeoutErrorMessage(selector)) &&
+        !navigator.onLine
+      ) {
+        await waitForOnline();
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 function getFallbackCandidateText(element) {
   if (!element) return "";
   // Prefer visible text labels to match user-facing content.
@@ -1257,17 +1317,6 @@ async function failAndReturn(err, requestId) {
   window.location.href = MASTER_PAGE_URL;
 }
 
-async function handleClosedRequest(requestId) {
-  if (requestId) {
-    await addToStorageList(STORAGE_PROCESSED, requestId);
-  }
-  await recordSuccessfulTaskForFatigue();
-  await resetFailureStreak();
-  if (!masterToggleEnabled) return;
-  await recordMasterRefresh();
-  window.location.href = MASTER_PAGE_URL;
-}
-
 // =============================
 // Master Page Logic
 // =============================
@@ -1348,17 +1397,10 @@ async function handleDetailPage() {
     if (!masterToggleEnabled) return;
     await ensureScrollToPageBottom(MAX_WAIT_MS);
 
-    let textarea;
-    try {
-      textarea = await waitForElement(SELECTOR_TEXTAREA, MAX_WAIT_MS);
-    } catch (err) {
-      const message = `${err?.message || err || ""}`;
-      if (message.includes(getTimeoutErrorMessage(SELECTOR_TEXTAREA))) {
-        await handleClosedRequest(requestId);
-        return;
-      }
-      throw err;
-    }
+    const textarea = await waitForTextareaWithNetworkResilience(
+      SELECTOR_TEXTAREA,
+      TEXTAREA_EXTENDED_WAIT_MS
+    );
     await scrollElementIntoViewportIfNeeded(textarea, MAX_WAIT_MS);
     if (!masterToggleEnabled) return;
     await typeLikeHuman(textarea, draft);
