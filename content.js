@@ -105,6 +105,7 @@ const MICRO_SCROLL_INTERVAL_MIN_MS = 250;
 const MICRO_SCROLL_INTERVAL_MAX_MS = 900;
 const SCROLL_VIEWPORT_FALLBACK_HEIGHT = 600;
 const SCROLL_WHEEL_MIN_DELTA = 120;
+const SCROLL_WHEEL_VIEWPORT_MULTIPLIER = 2;
 const SCROLL_STABILITY_DELAY_MS = 120;
 const SCROLL_STABILITY_COUNT_THRESHOLD = 2;
 const SCROLL_POSITION_TOLERANCE_PX = 2;
@@ -1089,13 +1090,14 @@ async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
     await waitForVisibility();
     const scrollHeight = getDocumentScrollHeight();
     const viewportHeight =
-      document.documentElement?.clientHeight || window.innerHeight || 0;
+      document.documentElement?.clientHeight ?? window.innerHeight ?? 0;
     const targetTop = Math.max(scrollHeight - viewportHeight, 0);
     const wheelDelta = Math.max(
       SCROLL_WHEEL_MIN_DELTA,
       Math.min(
         scrollHeight,
-        (viewportHeight || SCROLL_VIEWPORT_FALLBACK_HEIGHT) * 2
+        (viewportHeight || SCROLL_VIEWPORT_FALLBACK_HEIGHT) *
+          SCROLL_WHEEL_VIEWPORT_MULTIPLIER
       )
     );
 
