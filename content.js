@@ -21,22 +21,12 @@ const SELECTOR_REQUEST_LINKS =
   "table.listing_table .details-head a.ajaxbtn, #forum_requests a.ajaxbtn";
 const SELECTOR_REQUEST_TEXT =
   ".forum_post .card-body, .forum_post article, .text-content";
-const SELECTOR_ADD_REPLY =
-  "a[href='#add_comment'].c-button--primary, button[data-action='add-reply']";
 const SELECTOR_TEXTAREA = "#commentable_form textarea, textarea[name='comment']";
 const SELECTOR_CHECKBOX = "input#confirm[type='checkbox']";
 const SELECTOR_SUBMIT = "button#commentable_submit[type='submit']";
 const SELECTOR_SUCCESS = ".alert-success, .success-message, .notice-success";
 const SELECTOR_WARNING = ".alert.alert-danger, .warning, .error";
 // Arabic fallback labels when CSS selectors fail for critical actions.
-const FALLBACK_ADD_REPLY_TEXTS = [
-  "أضف تعليق",
-  "اضف تعليق",
-  "إضافة تعليق",
-  "أضف رد",
-  "اضف رد",
-  "إضافة رد"
-];
 const FALLBACK_SUBMIT_TEXTS = [
   "أرسل",
   "ارسال",
@@ -113,6 +103,12 @@ const MICRO_SCROLL_MAX_PX = 18;
 const MICRO_SCROLL_EDGE_BUFFER_PX = 6;
 const MICRO_SCROLL_INTERVAL_MIN_MS = 250;
 const MICRO_SCROLL_INTERVAL_MAX_MS = 900;
+const SCROLL_VIEWPORT_FALLBACK_HEIGHT = 600;
+const SCROLL_WHEEL_MIN_DELTA = 120;
+const SCROLL_WHEEL_VIEWPORT_MULTIPLIER = 2;
+const SCROLL_STABILITY_DELAY_MS = 120;
+const SCROLL_STABILITY_COUNT_THRESHOLD = 2;
+const SCROLL_POSITION_TOLERANCE_PX = 2;
 const API_BACKOFF_MIN_MS = 2 * 60 * 1000;
 const API_BACKOFF_MAX_MS = 4 * 60 * 1000;
 const DRAFT_PROBE_MIN_LENGTH = 40;
@@ -1065,6 +1061,75 @@ async function scrollElementIntoViewportIfNeeded(element, timeoutMs = MAX_WAIT_M
   );
 }
 
+function getDocumentScrollHeight() {
+  const body = document.body;
+  const docEl = document.documentElement;
+  return Math.max(
+    body?.scrollHeight || 0,
+    body?.offsetHeight || 0,
+    docEl?.scrollHeight || 0,
+    docEl?.offsetHeight || 0,
+    docEl?.clientHeight || 0
+  );
+}
+
+function getScrollTop() {
+  return (
+    window.pageYOffset ??
+    document.documentElement?.scrollTop ??
+    document.body?.scrollTop ??
+    0
+  );
+}
+
+async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
+  const startVisible = getVisibleElapsedMs();
+  let lastScrollHeight = 0;
+  let stableCount = 0;
+  while (getVisibleElapsedMs() - startVisible < timeoutMs) {
+    await waitForVisibility();
+    const scrollHeight = getDocumentScrollHeight();
+    const viewportHeight =
+      document.documentElement?.clientHeight ?? window.innerHeight ?? 0;
+    const targetTop = Math.max(scrollHeight - viewportHeight, 0);
+    const wheelDelta = Math.max(
+      SCROLL_WHEEL_MIN_DELTA,
+      Math.min(
+        scrollHeight,
+        (viewportHeight || SCROLL_VIEWPORT_FALLBACK_HEIGHT) *
+          SCROLL_WHEEL_VIEWPORT_MULTIPLIER
+      )
+    );
+
+    window.scrollTo(0, targetTop);
+    // Wheel event helps trigger lazy loaders that listen for scroll-wheel input.
+    window.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaX: 0,
+        deltaY: wheelDelta,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const currentTop = getScrollTop();
+    const atBottom =
+      Math.abs(currentTop - targetTop) <= SCROLL_POSITION_TOLERANCE_PX;
+    if (scrollHeight === lastScrollHeight && atBottom) {
+      stableCount += 1;
+    } else {
+      stableCount = 0;
+    }
+    if (stableCount >= SCROLL_STABILITY_COUNT_THRESHOLD) return;
+    lastScrollHeight = scrollHeight;
+    await sleep(SCROLL_STABILITY_DELAY_MS);
+  }
+  throw new Error(
+    `Timeout: Unable to reach a stable page bottom after ${timeoutMs}ms. This may indicate ongoing dynamic loading or blocked scrolling.`
+  );
+}
+
 async function simulateHumanClick(element) {
   if (!masterToggleEnabled) return;
   if (!element) {
@@ -1192,11 +1257,6 @@ async function failAndReturn(err, requestId) {
   window.location.href = MASTER_PAGE_URL;
 }
 
-function isAddReplyTimeoutError(err) {
-  const message = `${err?.message || err || ""}`;
-  return message.includes(getTimeoutErrorMessage(SELECTOR_ADD_REPLY));
-}
-
 async function handleClosedRequest(requestId) {
   if (requestId) {
     await addToStorageList(STORAGE_PROCESSED, requestId);
@@ -1284,26 +1344,22 @@ async function handleDetailPage() {
       await cacheDraft(requestId, draft);
     }
 
-    let addReplyButton;
+    await waitForVisibility();
+    if (!masterToggleEnabled) return;
+    await ensureScrollToPageBottom(MAX_WAIT_MS);
+
+    let textarea;
     try {
-      addReplyButton = await waitForElementWithFallback(
-        SELECTOR_ADD_REPLY,
-        FALLBACK_ADD_REPLY_TEXTS,
-        MAX_WAIT_MS
-      );
+      textarea = await waitForElement(SELECTOR_TEXTAREA, MAX_WAIT_MS);
     } catch (err) {
-      if (isAddReplyTimeoutError(err)) {
+      const message = `${err?.message || err || ""}`;
+      if (message.includes(getTimeoutErrorMessage(SELECTOR_TEXTAREA))) {
         await handleClosedRequest(requestId);
         return;
       }
       throw err;
     }
-    await waitForVisibility();
-    if (!masterToggleEnabled) return;
-    await simulateHumanClick(addReplyButton);
-    await sleep(randInt(UI_SHIFT_DELAY_MIN_MS, UI_SHIFT_DELAY_MAX_MS));
-
-    const textarea = await waitForElement(SELECTOR_TEXTAREA, MAX_WAIT_MS);
+    await scrollElementIntoViewportIfNeeded(textarea, MAX_WAIT_MS);
     if (!masterToggleEnabled) return;
     await typeLikeHuman(textarea, draft);
 
