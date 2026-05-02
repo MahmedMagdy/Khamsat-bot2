@@ -1138,7 +1138,7 @@ function getScrollTop() {
 
 async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
   const startVisible = getVisibleElapsedMs();
-  const BOTTOM_WAIT_MIN_MS = 12000;
+  const BOTTOM_EXTENDED_WAIT_BASE_MS = 12000;
   const BOTTOM_WAIT_MULTIPLIER = 1.5;
   const BOTTOM_STABILITY_COUNT_THRESHOLD = 3;
   const VIEWPORT_STEP_MIN_RATIO = 0.25;
@@ -1155,7 +1155,10 @@ async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
   const baseDeadline = startVisible + timeoutMs;
   const bottomWaitBudgetMs = Math.min(
     TEXTAREA_EXTENDED_WAIT_MS,
-    Math.max(BOTTOM_WAIT_MIN_MS, Math.round(timeoutMs * BOTTOM_WAIT_MULTIPLIER))
+    Math.max(
+      BOTTOM_EXTENDED_WAIT_BASE_MS,
+      Math.round(timeoutMs * BOTTOM_WAIT_MULTIPLIER)
+    )
   );
   const maxDeadline = baseDeadline + bottomWaitBudgetMs;
   let deadline = baseDeadline;
@@ -1216,12 +1219,12 @@ async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
 
     const updatedTop = getScrollTop();
     const updatedHeight = getDocumentScrollHeight();
-    const noMovement =
+    const minimalMovement =
       Math.abs(updatedTop - currentTop) < SCROLL_STABILITY_TOLERANCE_PX;
     const heightStable =
       Math.abs(updatedHeight - scrollHeight) < SCROLL_STABILITY_TOLERANCE_PX;
     if (
-      noMovement &&
+      minimalMovement &&
       heightStable &&
       updatedTop >= maxScrollTop - SCROLL_STABILITY_TOLERANCE_PX
     ) {
@@ -1249,6 +1252,7 @@ async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
           break;
         }
 
+        // Small nudges trigger lazy-loaded content after bottom is reached.
         const nudge = randInt(BOTTOM_NUDGE_MIN_PX, BOTTOM_NUDGE_MAX_PX);
         window.scrollBy(0, nudge);
         window.dispatchEvent(
