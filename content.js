@@ -61,6 +61,9 @@ const CLOSED_REQUEST_TEXTS = [
   "closed",
   "locked"
 ];
+const CLOSED_REQUEST_TEXTS_NORMALIZED = CLOSED_REQUEST_TEXTS.map((signal) =>
+  normalizeTextForMatch(signal)
+).filter(Boolean);
 // Arabic fallback labels when CSS selectors fail for critical actions.
 const FALLBACK_ADD_REPLY_TEXTS = [
   "أضف تعليق",
@@ -1293,8 +1296,8 @@ function isAddReplyTimeoutError(err) {
 function isRequestClosedNow() {
   const pageText = normalizeTextForMatch(getPageTextExcludingTextareas());
   if (!pageText) return false;
-  const hasClosedText = CLOSED_REQUEST_TEXTS.some((signal) =>
-    pageText.includes(normalizeTextForMatch(signal))
+  const hasClosedText = CLOSED_REQUEST_TEXTS_NORMALIZED.some((signal) =>
+    pageText.includes(signal)
   );
   if (!hasClosedText) return false;
   const form = document.querySelector(
