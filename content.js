@@ -21,22 +21,12 @@ const SELECTOR_REQUEST_LINKS =
   "table.listing_table .details-head a.ajaxbtn, #forum_requests a.ajaxbtn";
 const SELECTOR_REQUEST_TEXT =
   ".forum_post .card-body, .forum_post article, .text-content";
-const SELECTOR_ADD_REPLY =
-  "a[href='#add_comment'].c-button--primary, button[data-action='add-reply']";
 const SELECTOR_TEXTAREA = "#commentable_form textarea, textarea[name='comment']";
 const SELECTOR_CHECKBOX = "input#confirm[type='checkbox']";
 const SELECTOR_SUBMIT = "button#commentable_submit[type='submit']";
 const SELECTOR_SUCCESS = ".alert-success, .success-message, .notice-success";
 const SELECTOR_WARNING = ".alert.alert-danger, .warning, .error";
 // Arabic fallback labels when CSS selectors fail for critical actions.
-const FALLBACK_ADD_REPLY_TEXTS = [
-  "أضف تعليق",
-  "اضف تعليق",
-  "إضافة تعليق",
-  "أضف رد",
-  "اضف رد",
-  "إضافة رد"
-];
 const FALLBACK_SUBMIT_TEXTS = [
   "أرسل",
   "ارسال",
@@ -1065,6 +1055,63 @@ async function scrollElementIntoViewportIfNeeded(element, timeoutMs = MAX_WAIT_M
   );
 }
 
+function getDocumentScrollHeight() {
+  const body = document.body;
+  const docEl = document.documentElement;
+  return Math.max(
+    body?.scrollHeight || 0,
+    body?.offsetHeight || 0,
+    docEl?.scrollHeight || 0,
+    docEl?.offsetHeight || 0,
+    docEl?.clientHeight || 0
+  );
+}
+
+function getScrollTop() {
+  return (
+    window.pageYOffset ??
+    document.documentElement?.scrollTop ??
+    document.body?.scrollTop ??
+    0
+  );
+}
+
+async function aggressiveScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
+  const startVisible = getVisibleElapsedMs();
+  let lastScrollHeight = 0;
+  let stableCount = 0;
+  while (getVisibleElapsedMs() - startVisible <= timeoutMs) {
+    await waitForVisibility();
+    const scrollHeight = getDocumentScrollHeight();
+    const viewportHeight =
+      document.documentElement?.clientHeight || window.innerHeight || 0;
+    const targetTop = Math.max(scrollHeight - viewportHeight, 0);
+
+    window.scrollTo(0, scrollHeight);
+    window.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaX: 0,
+        deltaY: scrollHeight,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const currentTop = getScrollTop();
+    const atBottom = Math.abs(currentTop - targetTop) <= 2;
+    if (scrollHeight === lastScrollHeight && atBottom) {
+      stableCount += 1;
+    } else {
+      stableCount = 0;
+    }
+    if (stableCount >= 2) return;
+    lastScrollHeight = scrollHeight;
+    await sleep(120);
+  }
+  throw new Error(`Timeout scrolling to page bottom after ${timeoutMs}ms.`);
+}
+
 async function simulateHumanClick(element) {
   if (!masterToggleEnabled) return;
   if (!element) {
@@ -1192,11 +1239,6 @@ async function failAndReturn(err, requestId) {
   window.location.href = MASTER_PAGE_URL;
 }
 
-function isAddReplyTimeoutError(err) {
-  const message = `${err?.message || err || ""}`;
-  return message.includes(getTimeoutErrorMessage(SELECTOR_ADD_REPLY));
-}
-
 async function handleClosedRequest(requestId) {
   if (requestId) {
     await addToStorageList(STORAGE_PROCESSED, requestId);
@@ -1284,26 +1326,22 @@ async function handleDetailPage() {
       await cacheDraft(requestId, draft);
     }
 
-    let addReplyButton;
+    await waitForVisibility();
+    if (!masterToggleEnabled) return;
+    await aggressiveScrollToPageBottom(MAX_WAIT_MS);
+
+    let textarea;
     try {
-      addReplyButton = await waitForElementWithFallback(
-        SELECTOR_ADD_REPLY,
-        FALLBACK_ADD_REPLY_TEXTS,
-        MAX_WAIT_MS
-      );
+      textarea = await waitForElement(SELECTOR_TEXTAREA, MAX_WAIT_MS);
     } catch (err) {
-      if (isAddReplyTimeoutError(err)) {
+      const message = `${err?.message || err || ""}`;
+      if (message.includes(getTimeoutErrorMessage(SELECTOR_TEXTAREA))) {
         await handleClosedRequest(requestId);
         return;
       }
       throw err;
     }
-    await waitForVisibility();
-    if (!masterToggleEnabled) return;
-    await simulateHumanClick(addReplyButton);
-    await sleep(randInt(UI_SHIFT_DELAY_MIN_MS, UI_SHIFT_DELAY_MAX_MS));
-
-    const textarea = await waitForElement(SELECTOR_TEXTAREA, MAX_WAIT_MS);
+    await scrollElementIntoViewportIfNeeded(textarea, MAX_WAIT_MS);
     if (!masterToggleEnabled) return;
     await typeLikeHuman(textarea, draft);
 
