@@ -21,7 +21,7 @@ const SELECTOR_REQUEST_LINKS = "table.listing_table td.details-head a.ajaxbtn";
 const SELECTOR_REQUEST_TEXT =
   ".forum_post .card-body, .forum_post article, .text-content";
 const SELECTOR_ADD_REPLY =
-  "a[href='#add_comment'], a[href*='add_comment'], button[type='button'][data-action='add-reply'], button[type='button'][data-action='add_comment'], button[type='button'][data-action='add-comment'], [role='button'][data-action='add-reply'], [role='button'][data-action='add_comment'], [role='button'][data-action='add-comment']";
+  "a[href='#add_comment'], a[href*='add_comment'], :is(button[type='button'], [role='button'])[data-action='add-reply'], :is(button[type='button'], [role='button'])[data-action='add_comment'], :is(button[type='button'], [role='button'])[data-action='add-comment']";
 const SELECTOR_TEXTAREA = "#commentable_form textarea, textarea[name='comment']";
 const SELECTOR_CHECKBOX = "input#confirm[type='checkbox']";
 const SELECTOR_SUBMIT =
@@ -1298,7 +1298,7 @@ function isRequestClosedNow() {
   );
   if (!hasClosedText) return false;
   const form = document.querySelector(
-    "#commentable_form, form[action*='comment'], textarea[name='comment'], textarea"
+    "#commentable_form, form[action*='comment'], textarea[name='comment']"
   );
   return !form;
 }
