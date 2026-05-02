@@ -1138,15 +1138,28 @@ function getScrollTop() {
 
 async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
   const startVisible = getVisibleElapsedMs();
+  const BOTTOM_WAIT_MIN_MS = 12000;
+  const BOTTOM_WAIT_MULTIPLIER = 1.5;
+  const BOTTOM_STABILITY_COUNT_THRESHOLD = 3;
+  const VIEWPORT_STEP_MIN_RATIO = 0.25;
+  const VIEWPORT_STEP_MAX_RATIO = 0.6;
+  const SCROLL_STEP_MIN_PX = 120;
+  const SCROLL_STEP_BUFFER_PX = 40;
+  const SCROLL_STABILITY_TOLERANCE_PX = 1;
+  const SCROLL_PAUSE_MIN_MS = 180;
+  const SCROLL_PAUSE_MAX_MS = 420;
+  const BOTTOM_NUDGE_MIN_PX = 60;
+  const BOTTOM_NUDGE_MAX_PX = 140;
+  const BOTTOM_POLL_MIN_MS = 400;
+  const BOTTOM_POLL_MAX_MS = 900;
   const baseDeadline = startVisible + timeoutMs;
   const bottomWaitBudgetMs = Math.min(
     TEXTAREA_EXTENDED_WAIT_MS,
-    Math.max(12000, Math.round(timeoutMs * 1.5))
+    Math.max(BOTTOM_WAIT_MIN_MS, Math.round(timeoutMs * BOTTOM_WAIT_MULTIPLIER))
   );
   const maxDeadline = baseDeadline + bottomWaitBudgetMs;
   let deadline = baseDeadline;
   let bottomStabilityCount = 0;
-  const bottomStabilityTarget = 3;
 
   const isElementPartiallyInViewport = (element) => {
     if (!element) return false;
@@ -1178,8 +1191,14 @@ async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
       document.documentElement?.clientHeight ?? window.innerHeight ?? 0;
     const currentTop = getScrollTop();
     const maxScrollTop = Math.max(scrollHeight - viewportHeight, 0);
-    const stepMin = Math.max(120, Math.floor(viewportHeight * 0.25));
-    const stepMax = Math.max(stepMin + 40, Math.floor(viewportHeight * 0.6));
+    const stepMin = Math.max(
+      SCROLL_STEP_MIN_PX,
+      Math.floor(viewportHeight * VIEWPORT_STEP_MIN_RATIO)
+    );
+    const stepMax = Math.max(
+      stepMin + SCROLL_STEP_BUFFER_PX,
+      Math.floor(viewportHeight * VIEWPORT_STEP_MAX_RATIO)
+    );
     const step = randInt(stepMin, stepMax);
     const nextTop = Math.min(currentTop + step, maxScrollTop);
 
@@ -1193,19 +1212,25 @@ async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
       })
     );
 
-    await sleep(randInt(180, 420));
+    await sleep(randInt(SCROLL_PAUSE_MIN_MS, SCROLL_PAUSE_MAX_MS));
 
     const updatedTop = getScrollTop();
     const updatedHeight = getDocumentScrollHeight();
-    const noMovement = Math.abs(updatedTop - currentTop) < 1;
-    const heightStable = Math.abs(updatedHeight - scrollHeight) < 1;
-    if (noMovement && heightStable && updatedTop >= maxScrollTop - 1) {
+    const noMovement =
+      Math.abs(updatedTop - currentTop) < SCROLL_STABILITY_TOLERANCE_PX;
+    const heightStable =
+      Math.abs(updatedHeight - scrollHeight) < SCROLL_STABILITY_TOLERANCE_PX;
+    if (
+      noMovement &&
+      heightStable &&
+      updatedTop >= maxScrollTop - SCROLL_STABILITY_TOLERANCE_PX
+    ) {
       bottomStabilityCount += 1;
     } else {
       bottomStabilityCount = 0;
     }
 
-    if (bottomStabilityCount >= bottomStabilityTarget) {
+    if (bottomStabilityCount >= BOTTOM_STABILITY_COUNT_THRESHOLD) {
       deadline = Math.max(deadline, maxDeadline);
       const baselineHeight = updatedHeight;
       const baselineTop = updatedTop;
@@ -1216,12 +1241,15 @@ async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
 
         const freshHeight = getDocumentScrollHeight();
         const freshTop = getScrollTop();
-        if (freshHeight > baselineHeight + 1 || freshTop < baselineTop - 1) {
+        if (
+          freshHeight > baselineHeight + SCROLL_STABILITY_TOLERANCE_PX ||
+          freshTop < baselineTop - SCROLL_STABILITY_TOLERANCE_PX
+        ) {
           bottomStabilityCount = 0;
           break;
         }
 
-        const nudge = randInt(60, 140);
+        const nudge = randInt(BOTTOM_NUDGE_MIN_PX, BOTTOM_NUDGE_MAX_PX);
         window.scrollBy(0, nudge);
         window.dispatchEvent(
           new WheelEvent("wheel", {
@@ -1231,7 +1259,7 @@ async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
             cancelable: true
           })
         );
-        await sleep(randInt(400, 900));
+        await sleep(randInt(BOTTOM_POLL_MIN_MS, BOTTOM_POLL_MAX_MS));
       }
 
       if (getVisibleElapsedMs() >= deadline) {
