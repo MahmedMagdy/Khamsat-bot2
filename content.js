@@ -104,12 +104,6 @@ const MICRO_SCROLL_MAX_PX = 18;
 const MICRO_SCROLL_EDGE_BUFFER_PX = 6;
 const MICRO_SCROLL_INTERVAL_MIN_MS = 250;
 const MICRO_SCROLL_INTERVAL_MAX_MS = 900;
-const SCROLL_VIEWPORT_FALLBACK_HEIGHT = 600;
-const SCROLL_WHEEL_MIN_DELTA = 120;
-const SCROLL_WHEEL_VIEWPORT_MULTIPLIER = 2;
-const SCROLL_STABILITY_DELAY_MS = 120;
-const SCROLL_STABILITY_COUNT_THRESHOLD = 2;
-const SCROLL_POSITION_TOLERANCE_PX = 2;
 const API_BACKOFF_MIN_MS = 2 * 60 * 1000;
 const API_BACKOFF_MAX_MS = 4 * 60 * 1000;
 const DRAFT_PROBE_MIN_LENGTH = 40;
@@ -1144,49 +1138,116 @@ function getScrollTop() {
 
 async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
   const startVisible = getVisibleElapsedMs();
-  let lastScrollHeight = 0;
-  let stableCount = 0;
-  while (getVisibleElapsedMs() - startVisible < timeoutMs) {
+  const baseDeadline = startVisible + timeoutMs;
+  const bottomWaitBudgetMs = Math.min(
+    TEXTAREA_EXTENDED_WAIT_MS,
+    Math.max(12000, Math.round(timeoutMs * 1.5))
+  );
+  const maxDeadline = baseDeadline + bottomWaitBudgetMs;
+  let deadline = baseDeadline;
+  let bottomStabilityCount = 0;
+  const bottomStabilityTarget = 3;
+
+  const isElementPartiallyInViewport = (element) => {
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    if (!rect.width || !rect.height) return false;
+    const viewportWidth =
+      document.documentElement?.clientWidth ?? window.innerWidth ?? 0;
+    const viewportHeight =
+      document.documentElement?.clientHeight ?? window.innerHeight ?? 0;
+    return (
+      rect.bottom > 0 &&
+      rect.right > 0 &&
+      rect.top < viewportHeight &&
+      rect.left < viewportWidth
+    );
+  };
+
+  const isTextareaVisible = () => {
+    const textarea = document.querySelector(SELECTOR_TEXTAREA);
+    return textarea && isElementPartiallyInViewport(textarea);
+  };
+
+  while (getVisibleElapsedMs() < deadline) {
     await waitForVisibility();
+    if (isTextareaVisible()) return;
+
     const scrollHeight = getDocumentScrollHeight();
     const viewportHeight =
       document.documentElement?.clientHeight ?? window.innerHeight ?? 0;
-    const targetTop = Math.max(scrollHeight - viewportHeight, 0);
-    const wheelDelta = Math.max(
-      SCROLL_WHEEL_MIN_DELTA,
-      Math.min(
-        scrollHeight,
-        (viewportHeight || SCROLL_VIEWPORT_FALLBACK_HEIGHT) *
-          SCROLL_WHEEL_VIEWPORT_MULTIPLIER
-      )
-    );
+    const currentTop = getScrollTop();
+    const maxScrollTop = Math.max(scrollHeight - viewportHeight, 0);
+    const stepMin = Math.max(120, Math.floor(viewportHeight * 0.25));
+    const stepMax = Math.max(stepMin + 40, Math.floor(viewportHeight * 0.6));
+    const step = randInt(stepMin, stepMax);
+    const nextTop = Math.min(currentTop + step, maxScrollTop);
 
-    window.scrollTo(0, targetTop);
-    // Wheel event helps trigger lazy loaders that listen for scroll-wheel input.
+    window.scrollTo({ top: nextTop, behavior: "auto" });
     window.dispatchEvent(
       new WheelEvent("wheel", {
         deltaX: 0,
-        deltaY: wheelDelta,
+        deltaY: step,
         bubbles: true,
         cancelable: true
       })
     );
 
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    const currentTop = getScrollTop();
-    const atBottom =
-      Math.abs(currentTop - targetTop) <= SCROLL_POSITION_TOLERANCE_PX;
-    if (scrollHeight === lastScrollHeight && atBottom) {
-      stableCount += 1;
+    await sleep(randInt(180, 420));
+
+    const updatedTop = getScrollTop();
+    const updatedHeight = getDocumentScrollHeight();
+    const noMovement = Math.abs(updatedTop - currentTop) < 1;
+    const heightStable = Math.abs(updatedHeight - scrollHeight) < 1;
+    if (noMovement && heightStable && updatedTop >= maxScrollTop - 1) {
+      bottomStabilityCount += 1;
     } else {
-      stableCount = 0;
+      bottomStabilityCount = 0;
     }
-    if (stableCount >= SCROLL_STABILITY_COUNT_THRESHOLD) return;
-    lastScrollHeight = scrollHeight;
-    await sleep(SCROLL_STABILITY_DELAY_MS);
+
+    if (bottomStabilityCount >= bottomStabilityTarget) {
+      deadline = Math.max(deadline, maxDeadline);
+      const baselineHeight = updatedHeight;
+      const baselineTop = updatedTop;
+
+      while (getVisibleElapsedMs() < deadline) {
+        await waitForVisibility();
+        if (isTextareaVisible()) return;
+
+        const freshHeight = getDocumentScrollHeight();
+        const freshTop = getScrollTop();
+        if (freshHeight > baselineHeight + 1 || freshTop < baselineTop - 1) {
+          bottomStabilityCount = 0;
+          break;
+        }
+
+        const nudge = randInt(60, 140);
+        window.scrollBy(0, nudge);
+        window.dispatchEvent(
+          new WheelEvent("wheel", {
+            deltaX: 0,
+            deltaY: nudge,
+            bubbles: true,
+            cancelable: true
+          })
+        );
+        await sleep(randInt(400, 900));
+      }
+
+      if (getVisibleElapsedMs() >= deadline) {
+        throw new Error(
+          `Timeout: Page bottom reached but textarea did not render within ${Math.round(
+            (deadline - startVisible) / 1000
+          )}s.`
+        );
+      }
+    }
   }
+
   throw new Error(
-    `Timeout: Unable to reach a stable page bottom after ${timeoutMs}ms. This may indicate ongoing dynamic loading or blocked scrolling.`
+    `Timeout: Unable to reach textarea or page bottom within ${Math.round(
+      (deadline - startVisible) / 1000
+    )}s.`
   );
 }
 
