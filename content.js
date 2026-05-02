@@ -1102,6 +1102,7 @@ async function ensureScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
     );
 
     window.scrollTo(0, targetTop);
+    // Wheel event helps trigger lazy loaders that listen for scroll-wheel input.
     window.dispatchEvent(
       new WheelEvent("wheel", {
         deltaX: 0,
