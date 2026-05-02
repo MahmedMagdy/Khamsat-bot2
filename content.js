@@ -103,6 +103,9 @@ const MICRO_SCROLL_MAX_PX = 18;
 const MICRO_SCROLL_EDGE_BUFFER_PX = 6;
 const MICRO_SCROLL_INTERVAL_MIN_MS = 250;
 const MICRO_SCROLL_INTERVAL_MAX_MS = 900;
+const SCROLL_VIEWPORT_FALLBACK_HEIGHT = 600;
+const SCROLL_WHEEL_MIN_DELTA = 120;
+const SCROLL_STABILITY_DELAY_MS = 120;
 const API_BACKOFF_MIN_MS = 2 * 60 * 1000;
 const API_BACKOFF_MAX_MS = 4 * 60 * 1000;
 const DRAFT_PROBE_MIN_LENGTH = 40;
@@ -1087,8 +1090,11 @@ async function aggressiveScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
       document.documentElement?.clientHeight || window.innerHeight || 0;
     const targetTop = Math.max(scrollHeight - viewportHeight, 0);
     const wheelDelta = Math.max(
-      120,
-      Math.min(scrollHeight, (viewportHeight || 600) * 2)
+      SCROLL_WHEEL_MIN_DELTA,
+      Math.min(
+        scrollHeight,
+        (viewportHeight || SCROLL_VIEWPORT_FALLBACK_HEIGHT) * 2
+      )
     );
 
     window.scrollTo(0, targetTop);
@@ -1111,10 +1117,10 @@ async function aggressiveScrollToPageBottom(timeoutMs = MAX_WAIT_MS) {
     }
     if (stableCount >= 2) return;
     lastScrollHeight = scrollHeight;
-    await sleep(120);
+    await sleep(SCROLL_STABILITY_DELAY_MS);
   }
   throw new Error(
-    `Timeout: Unable to reach a stable page bottom after ${timeoutMs}ms.`
+    `Timeout: Unable to reach a stable page bottom after ${timeoutMs}ms. This may indicate ongoing dynamic loading or blocked scrolling.`
   );
 }
 
